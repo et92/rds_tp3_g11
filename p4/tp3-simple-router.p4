@@ -53,19 +53,7 @@ header ipv4_t {
     ip4Addr_t dstAddr;
 }
 
-header tcp_t {
-    bit<16> srcPort;
-    bit<16> dstPort;
-    bit<32> seqNo;
-    bit<32> ackNo;
-    bit<4>  dataOffset; // how long the TCP header is
-    bit<3>  res;
-    bit<3>  ecn;        // Explicit congestion notification
-    bit<6>  ctrl;       // URG,ACK,PSH,RST,SYN,FIN
-    bit<16> window;
-    bit<16> checksum;
-    bit<16> urgentPtr;
-}
+
 
 
 /**
@@ -81,7 +69,6 @@ struct metadata {
 struct headers {
     ethernet_t   ethernet;
     ipv4_t       ipv4;
-    tcp_t        tcp;
 }
 
 /*************************************************************************
@@ -102,15 +89,19 @@ parser MyParser(packet_in packet,
         transition parse_ethernet;
     }
 
-    /*
+    
     state parse_ethernet {
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType) {
-            TYPE_IPV4:  <the name of the ipv4 parser>
+            TYPE_IPV4:  parse_ipv4;
             default: accept;
         }
     }
-    */
+    state parse_ipv4{
+        packet.extract(hdr.ipv4);
+        transition accept;
+    }
+    
 
 }
 
@@ -126,7 +117,10 @@ control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
 /*************************************************************************
 **************  I N G R E S S   P R O C E S S I N G   *******************
 *************************************************************************/
-
+ /**
+    * this is your main pipeline
+    * where we define the actions and tables
+    */
 control MyIngress(inout headers hdr,
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
@@ -134,18 +128,60 @@ control MyIngress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
-    /**
-    * this is your main pipeline
-    * where we define the actions and tables
-    */
+    action ipv4_fwd(ip4Addr_t nxt_hop, egressSpec_t port) {
+        meta.next_hop_ipv4 = nxt_hop;
+        standard_metadata.egress_spec = port;
+        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+    }
+    table ipv4_lpm {
+        key = { hdr.ipv4.dstAddr : lpm; }
+        actions = {
+            ipv4_fwd;
+            drop;
+            NoAction;
+        }
+        default_action = NoAction(); // NoAction is defined in v1model - does nothing
+    }
 
-    
+    action rewrite_src_mac(macAddr_t src_mac) {
+        hdr.ethernet.srcAddr = src_mac;
+    }
+
+    table src_mac {
+        key = { standard_metadata.egress_spec : exact; }
+        actions = {
+            rewrite_src_mac;
+            drop;
+        }
+        default_action = drop;
+    }  
+
+    action rewrite_dst_mac(macAddr_t dst_mac) {
+        hdr.ethernet.dstAddr = dst_mac;
+    }
+
+    table dst_mac {
+        key = { meta.next_hop_ipv4 : exact; }
+        actions = {
+            rewrite_dst_mac;
+            drop;
+        }
+        default_action = drop;
+    }
+ 
+
+
     
     apply {
         /**
         * The conditions and order in which the software 
         * switch must apply the tables. 
         */
+        if (hdr.ipv4.isValid()) {
+            ipv4_lpm.apply();
+            src_mac.apply();
+            dst_mac.apply();
+        }
     }
 }
 
@@ -192,8 +228,9 @@ control MyDeparser(packet_out packet, in headers hdr) {
     apply {
         /**
         * add the extracted headers to the packet 
-        * packet.emit(hdr.ethernet);
         */
+        packet.emit(hdr.ethernet);
+        packet.emit(hdr.ipv4);
     }
 }
 
