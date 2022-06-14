@@ -156,6 +156,8 @@ control MyIngress(inout headers hdr,
         standard_metadata.egress_spec = port;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
+
+    /**
     table ipv4_lpm {
         key = { hdr.ipv4.dstAddr : lpm; }
         actions = {
@@ -163,22 +165,7 @@ control MyIngress(inout headers hdr,
             drop;
             NoAction;
         }
-        size = 1024;
         default_action = drop(); // 
-    }
-
-
-    table check_ports {
-        key = {
-            standard_metadata.ingress_port: exact;
-            standard_metadata.egress_spec: exact;
-        }
-        actions = {
-            set_direction;
-            NoAction;
-        }
-        size = 1024;
-        default_action = NoAction();
     }
 
 
@@ -207,6 +194,35 @@ control MyIngress(inout headers hdr,
         }
         default_action = drop;
     }
+    */
+
+    table check_ports {
+        key = {
+            standard_metadata.ingress_port: exact;
+            standard_metadata.egress_spec: exact;
+        }
+        actions = {
+            ipv4_fwd;
+            drop;
+            set_direction;
+            NoAction;
+        }
+        default_action = NoAction();
+    }
+
+    table firewall_tcp {
+        key = {
+            hdr.ipv4.srcAddr : exact;
+            hdr.ipv4.dstAddr : exact;
+            hdr.tcp.dstPort : exact;
+            hdr.ipv4.dstAddr : lpm;
+        }
+        actions = {
+            drop;
+            ipv4_fwd;
+        }
+        default_action = drop;
+    }
  
 
 
@@ -216,11 +232,21 @@ control MyIngress(inout headers hdr,
         * The conditions and order in which the software 
         * switch must apply the tables. 
         */
-        if (hdr.ipv4.isValid()) {
-            ipv4_lpm.apply();
-            src_mac.apply();
-            dst_mac.apply();
+        if ( hdr.ipv4.isValid() && hdr.tcp.isValid() ) {
+            firewall_tcp.apply();
+            check_ports.apply();
+
         }
+        else if ( hdr.icmp.isValid() ) {
+            /** Drop all ICMP traffic including private IP */
+            drop();
+        }
+        else {
+            /** For now dropping all traffic without rule except TCP and ICMP */
+            drop();
+        }
+
+            
     }
 }
 
@@ -270,7 +296,8 @@ control MyDeparser(packet_out packet, in headers hdr) {
         */
         packet.emit(hdr.ethernet);
         packet.emit(hdr.ipv4);
-        packet.emit(hdr.tcp)
+        packet.emit(hdr.icmp);
+        packet.emit(hdr.tcp);
     }
 }
 
