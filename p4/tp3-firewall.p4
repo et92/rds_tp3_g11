@@ -119,15 +119,6 @@ parser MyParser(packet_in packet,
         }
     }
 
-    state parse_icmp {
-        packet.extract(hdr.icmp);
-        transition accept;
-    }
-
-    state udp {
-       packet.extract(hdr.udp);
-       transition accept;
-    }
 
 
     state tcp {
@@ -244,14 +235,7 @@ control MyIngress(inout headers hdr,
             check_ports.apply();
 
         }
-        else if ( hdr.icmp.isValid() ) {
-            /** Drop all ICMP traffic including private IP */
-            drop();
-        }
-
-        else if ( hdr.ipv4.isValid() && hdr.udp.isValid() ) {
-            drop();
-        }
+    
         else {
             /** For now dropping all traffic without rule except TCP and ICMP */
             drop();
@@ -307,8 +291,6 @@ control MyDeparser(packet_out packet, in headers hdr) {
         */
         packet.emit(hdr.ethernet);
         packet.emit(hdr.ipv4);
-        packet.emit(hdr.icmp);
-        packet.emit(hdr.udp);
         packet.emit(hdr.tcp);
     }
 }
