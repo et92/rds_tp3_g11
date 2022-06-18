@@ -115,8 +115,6 @@ parser MyParser(packet_in packet,
         packet.extract(hdr.ipv4);
         transition select(hdr.ipv4.protocol){
             TYPE_TCP: tcp;
-            TYPE_ICMP: parse_icmp;
-            TYPE_TCP : parse_tcp;
             default: accept;
         }
     }
