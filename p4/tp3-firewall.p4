@@ -69,7 +69,6 @@ header tcp_t {
 
 
 
-
 /**
 * You can use this structure to pass 
 * information between blocks/pipelines.
@@ -116,17 +115,31 @@ parser MyParser(packet_in packet,
         packet.extract(hdr.ipv4);
         transition select(hdr.ipv4.protocol){
             TYPE_TCP: tcp;
+            TYPE_ICMP: parse_icmp;
+            TYPE_TCP : parse_tcp;
             default: accept;
         }
     }
+
+    state parse_icmp {
+        packet.extract(hdr.icmp);
+        transition accept;
+    }
+
+    state udp {
+       packet.extract(hdr.udp);
+       transition accept;
+    }
+
 
     state tcp {
        packet.extract(hdr.tcp);
        transition accept;
     }
+
+
 }
     
-
 
 /*************************************************************************
 ************   C H E C K S U M    V E R I F I C A T I O N   *************
@@ -203,8 +216,7 @@ control MyIngress(inout headers hdr,
         }
         actions = {
             ipv4_fwd;
-            drop;
-            set_direction;
+            drop; 
             NoAction;
         }
         default_action = NoAction();
@@ -212,10 +224,10 @@ control MyIngress(inout headers hdr,
 
     table firewall_tcp {
         key = {
-            hdr.ipv4.srcAddr : exact;
-            hdr.ipv4.dstAddr : exact;
-            hdr.tcp.dstPort : exact;
+            hdr.ipv4.srcAddr : exact; 
             hdr.ipv4.dstAddr : lpm;
+            hdr.tcp.srcPort : exact;
+            hdr.tcp.dstPort : exact;
         }
         actions = {
             drop;
@@ -223,10 +235,7 @@ control MyIngress(inout headers hdr,
         }
         default_action = drop;
     }
- 
 
-
-    
     apply {
         /**
         * The conditions and order in which the software 
@@ -239,6 +248,10 @@ control MyIngress(inout headers hdr,
         }
         else if ( hdr.icmp.isValid() ) {
             /** Drop all ICMP traffic including private IP */
+            drop();
+        }
+
+        else if ( hdr.ipv4.isValid() && hdr.udp.isValid() ) {
             drop();
         }
         else {
@@ -297,6 +310,7 @@ control MyDeparser(packet_out packet, in headers hdr) {
         packet.emit(hdr.ethernet);
         packet.emit(hdr.ipv4);
         packet.emit(hdr.icmp);
+        packet.emit(hdr.udp);
         packet.emit(hdr.tcp);
     }
 }
