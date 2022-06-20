@@ -154,12 +154,12 @@ control MyIngress(inout headers hdr,
     }
 
     action ipv4_fwd(ip4Addr_t nxt_hop, egressSpec_t port) {
-        meta.next_hop_ipv4 = nxt_hop;
         standard_metadata.egress_spec = port;
+        meta.next_hop_ipv4 = nxt_hop;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
-    /**
+ 
     table ipv4_lpm {
         key = { hdr.ipv4.dstAddr : lpm; }
         actions = {
@@ -167,9 +167,8 @@ control MyIngress(inout headers hdr,
             drop;
             NoAction;
         }
-        default_action = drop(); // 
+        default_action = NoAction(); // NoAction is defined in v1model - does nothing
     }
-
 
     action rewrite_src_mac(macAddr_t src_mac) {
         hdr.ethernet.srcAddr = src_mac;
@@ -196,51 +195,36 @@ control MyIngress(inout headers hdr,
         }
         default_action = drop;
     }
-    */
-
-    table check_ports {
-        key = {
-            standard_metadata.ingress_port: exact;
-            standard_metadata.egress_spec: exact;
-        }
-        actions = {
-            ipv4_fwd;
-            drop; 
-            NoAction;
-        }
-        default_action = NoAction();
-    }
-
+ 
+    
+    
     table firewall_tcp {
         key = {
             hdr.ipv4.srcAddr : exact; 
             hdr.ipv4.dstAddr : lpm;
-            hdr.tcp.srcPort : exact;
-            hdr.tcp.dstPort : exact;
+            hdr.tcp.srcPort : range;
+            hdr.tcp.dstPort : range;
         }
         actions = {
+            NoAction;
             drop;
-            ipv4_fwd;
         }
         default_action = drop;
+        
     }
+
 
     apply {
         /**
         * The conditions and order in which the software 
         * switch must apply the tables. 
         */
-        if ( hdr.ipv4.isValid() && hdr.tcp.isValid() ) {
+        if ( hdr.ipv4.isValid() ) {
+            ipv4_lpm.apply();
+            src_mac.apply();
+            dst_mac.apply();
             firewall_tcp.apply();
-            check_ports.apply();
-
         }
-    
-        else {
-            /** For now dropping all traffic without rule except TCP and ICMP */
-            drop();
-        }
-
             
     }
 }
